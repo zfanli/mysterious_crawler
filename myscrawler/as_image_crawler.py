@@ -36,6 +36,8 @@ _internal = None
 _baseurl = ""
 _timeout = 180
 _output = "./temp"
+_pages_threshold = 10
+_images_threshold = 3
 
 
 def sleep(min, max):
@@ -55,10 +57,13 @@ class PageCollector(threading.Thread):
     def run(self):
         persister = Persister(**self.config)
         entrypoint = self.entrypoint
+        # count for exit due to irrelevant recommendation appears
+        count = 1
         while True:
             # perform http request
             try:
                 url = _baseurl + entrypoint
+                print(f"PageCollector: Reached to new page {url}")
                 res = get(url)
 
                 if res.status_code != requests.codes.ok:
@@ -97,12 +102,19 @@ class PageCollector(threading.Thread):
             if _internal is not None:
                 # sleep a little bit more than saving images
                 sleep(_internal["min"] * 5, _internal["max"] * 5)
+                if count > _pages_threshold:
+                    # restart crawlering
+                    print(f"PageCollector: Restart crawlering from initial entrypoint.")
+                    return self.run()
+                count += 1
 
 
 class ImageSaver(threading.Thread):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        # count for bad retries
+        self.count = 1
 
     def run(self):
         persister = Persister(**self.config)
@@ -148,28 +160,43 @@ class ImageSaver(threading.Thread):
                     url = _baseurl + src
                     res = get(url)
                     if res.status_code == requests.codes.ok:
-                        print(f"ImageSaver: saving image {filename}")
+                        print(f"ImageSaver: Saving image to {filename}")
                         io_helper.save_file(filename, res.content)
                     else:
+                        # retry to threshold times and skip it if cannot reach
+                        if self.count > _images_threshold - 1:
+                            filename = str(filename) + "_" + str(res.status_code)
+                            print(
+                                f"ImageSaver: Retry times exceeded, skip and saving to {filename}"
+                            )
+                            io_helper.save_file(filename, b"")
+                            self.count = 0
+                            continue
                         # try again latter
                         print(
                             f"ImageSaver: Status code is not ok for {url}, {res.status_code}"
                         )
+
                         time.sleep(5)
                         persister.close()
+                        # set bad tries count
+                        self.count += 1
                         return self.run()
                 except Exception as e:
                     print(f"ImageSaver: Failed to get the image {url}")
                     persister.close()
+                    self.run()
                     raise e
 
             # update stauts
-            print(f"ImageSaver: finished dealing with page {url}, {desc}")
+            print(f"ImageSaver: Finished dealing with page {url}, {desc}")
             persister.execute(SQL_UPDATE, (STATUS_FINISHED, page_url))
 
             # Finish this page and sleep for a few seconds before go on
             if _internal is not None:
                 sleep(_internal["min"], _internal["max"])
+                # reset count
+                self.count = 0
 
 
 class AsImageCrawler:
