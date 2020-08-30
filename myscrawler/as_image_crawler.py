@@ -101,7 +101,7 @@ class PageCollector(threading.Thread):
             # Finish this page and sleep for a few seconds before go on
             if _internal is not None:
                 # sleep a little bit more than saving images
-                sleep(_internal["min"] * 5, _internal["max"] * 5)
+                sleep(_internal["min"] * 10, _internal["max"] * 10)
                 if count > _pages_threshold:
                     # restart crawlering
                     print(f"PageCollector: Restart crawlering from initial entrypoint.")
