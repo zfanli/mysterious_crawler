@@ -69,8 +69,9 @@ class Persister:
         try:
             cursor.execute(sql, val)
             self.__db.commit()
-        except Exception:
+        except Exception as e:
             self.__db.rollback()
+            raise e
 
     def close(self):
         """Close connector"""
