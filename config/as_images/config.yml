@@ -1,0 +1,16 @@
+# proxy settings
+proxy:
+  type: http
+  host: 10.0.0.5:8001
+simulation:
+  # simulate browser
+  user_agent: Mozilla/5.0 (iPad; CPU OS 11_0 like Mac OS X) AppleWebKit/604.1.34 (KHTML, like Gecko) Version/11.0 Mobile/15A5341f Safari/604.1
+  # simulate human behavior
+  internal:
+    min: 500
+    max: 1000
+# configure output path and sqlite settings
+persistence:
+  output: ./temp/as_images/output
+  sqlite:
+    file: ./temp/as_images/sqlite.db
