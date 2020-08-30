@@ -4,6 +4,10 @@ SQLite Persister.
 
 import sqlite3
 
+from pathlib import Path
+
+from . import io_helper
+
 
 class Persister:
     """
@@ -24,7 +28,7 @@ class Persister:
     - insert a new record
 
     ```python
-        per.insert(
+        per.execute(
             "insert into test values(CURRENT_TIMESTAMP, ?, ?)",
             ("new b", "new c")
         )
@@ -45,6 +49,8 @@ class Persister:
 
     def __init__(self, file, check, ddl):
         """Init connector and ensure ddl exists"""
+        # print(file, check, ddl)
+        io_helper.ensure_path(Path(file).parent)
         self.__db = sqlite3.connect(file)
         self.ensure(check, ddl)
 
@@ -63,7 +69,7 @@ class Persister:
         cursor.execute(sql, val)
         return cursor.fetchone()
 
-    def insert(self, sql, val=()):
+    def execute(self, sql, val=()):
         """Insert a record using specified sql"""
         cursor = self.__db.cursor()
         try:
