@@ -113,8 +113,6 @@ class ImageSaver(threading.Thread):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        # count for bad retries
-        self.count = 1
 
     def run(self):
         persister = Persister(**self.config)
@@ -150,43 +148,47 @@ class ImageSaver(threading.Thread):
             # get image urls
             images = soup.select(".rootContant .showMiniImage")
             print(f"ImageSaver: start dealing with page {url}, {desc}")
+
             for idx in range(start_idx, len(images)):
                 image = images[idx]
                 src = image["data-src"]
                 # retrieve full size image uri
                 src = src.replace("_t.", ".")
                 filename = output.joinpath(str(idx) + "." + src.split(".")[-1])
-                try:
-                    url = _baseurl + src
-                    res = get(url)
-                    if res.status_code == requests.codes.ok:
-                        print(f"ImageSaver: Saving image to {filename}")
-                        io_helper.save_file(filename, res.content)
-                    else:
-                        # retry to threshold times and skip it if cannot reach
-                        if self.count > _images_threshold - 1:
-                            filename = str(filename) + "_" + str(res.status_code)
-                            print(
-                                f"ImageSaver: Retry times exceeded, skip and saving to {filename}"
-                            )
-                            io_helper.save_file(filename, b"")
-                            self.count = 0
-                            continue
-                        # try again latter
-                        print(
-                            f"ImageSaver: Status code is not ok for {url}, {res.status_code}"
-                        )
 
-                        time.sleep(5)
+                # retry saving image only
+                for times in range(_images_threshold):
+                    try:
+                        url = _baseurl + src
+                        res = get(url)
+                        if res.status_code == requests.codes.ok:
+                            print(f"ImageSaver: Saving image to {filename}")
+                            io_helper.save_file(filename, res.content)
+                            # break loop if ok
+                            break
+                        else:
+                            # retry to threshold times and skip it if cannot reach
+                            if times == _images_threshold - 1:
+                                filename = str(filename) + "_" + str(res.status_code)
+                                print(
+                                    f"ImageSaver: Retry times exceeded, skip and saving to {filename}"
+                                )
+                                io_helper.save_file(filename, b"")
+                                break
+                            # try again latter
+                            print(
+                                f"ImageSaver: Status code is not ok for {url}, {res.status_code}"
+                            )
+
+                            time.sleep(5)
+                            # try to save again
+                            continue
+                    except Exception as e:
+                        print(f"ImageSaver: Failed to get the image {url}")
                         persister.close()
-                        # set bad tries count
-                        self.count += 1
+                        time.sleep(5)
                         return self.run()
-                except Exception as e:
-                    print(f"ImageSaver: Failed to get the image {url}")
-                    persister.close()
-                    self.run()
-                    raise e
+                        # raise e
 
             # update stauts
             print(f"ImageSaver: Finished dealing with page {url}, {desc}")
@@ -195,15 +197,15 @@ class ImageSaver(threading.Thread):
             # Finish this page and sleep for a few seconds before go on
             if _internal is not None:
                 sleep(_internal["min"], _internal["max"])
-                # reset count
-                self.count = 0
 
 
 class AsImageCrawler:
-    def __init__(self, config_path, baseurl, entrypoint):
+    def __init__(self, config_path, baseurl, entrypoint, mute_collector=False):
         global _baseurl
         _baseurl = baseurl
         self.entrypoint = entrypoint
+        # for mute collector if you don't need more collections
+        self.mute_collector = mute_collector
         with open(config_path) as file:
             # load config
             self.config = yaml.load(file, Loader=yaml.Loader)
@@ -238,10 +240,14 @@ class AsImageCrawler:
                     _internal = simulation["internal"]
 
     def start(self):
-        # pages collector thread
-        collector = PageCollector(config=self.per_config, entrypoint=self.entrypoint)
+        # collector is more efficient than image saver,
+        # so you can mute collector if you don't need more collections
+        if not self.mute_collector:
+            # pages collector thread
+            collector = PageCollector(
+                config=self.per_config, entrypoint=self.entrypoint
+            )
+            collector.start()
         # image saver thread
         saver = ImageSaver(config=self.per_config)
-        # start threads
-        collector.start()
         saver.start()

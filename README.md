@@ -28,3 +28,11 @@ entrypoint = "this_is_the_entrypoint"
 aic = AsImageCrawler("./config/as_images/config.yml", baseurl, entrypoint)
 aic.start()
 ```
+
+You can mute collector if you don't need more collections.
+
+```python
+aic = AsImageCrawler(
+    "./config/as_images/config.yml", baseurl, entrypoint, mute_collector=True
+)
+```
