@@ -7,6 +7,12 @@ import yaml
 import random
 import time
 import requests
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-4s %(name)s::%(message)s",
+)
 
 from bs4 import BeautifulSoup
 from pathlib import Path
@@ -53,6 +59,7 @@ class PageCollector(threading.Thread):
         super().__init__()
         self.entrypoint = entrypoint
         self.config = config
+        self.logger = logging.getLogger("PageCollector")
 
     def run(self):
         persister = Persister(**self.config)
@@ -63,20 +70,20 @@ class PageCollector(threading.Thread):
             # perform http request
             try:
                 url = _baseurl + entrypoint
-                print(f"PageCollector: Reached to new page {url}")
+                self.logger.info(f"Reached to new page {url}")
                 res = get(url)
 
                 if res.status_code != requests.codes.ok:
                     # try again latter
-                    print(
-                        f"PageCollector: Status code is not ok for {url}, {res.status_code}"
+                    self.logger.warn(
+                        f"Status code is not ok for {url}, {res.status_code}"
                     )
                     time.sleep(5)
                     persister.close()
                     return self.run()
             except:
                 # try again latter
-                print(f"PageCollector: Failed to reach to the page {url}")
+                self.logger.error(f"Failed to reach to the page {url}")
                 time.sleep(5)
                 persister.close()
                 return self.run()
@@ -90,7 +97,7 @@ class PageCollector(threading.Thread):
             for page in pages:
                 existed = persister.fetchone(SQL_CHECK_BEFORE_INSERT, (page["url"],))
                 if existed is None:
-                    print(f'PageCollector: save new url {page["url"]}, {page["desc"]}')
+                    self.logger.info(f'save new url {page["url"]}, {page["desc"]}')
                     persister.execute(
                         SQL_INSERT, (page["url"], STATUS_READY, page["desc"])
                     )
@@ -104,7 +111,7 @@ class PageCollector(threading.Thread):
                 sleep(_internal["min"] * 10, _internal["max"] * 10)
                 if count > _pages_threshold:
                     # restart crawlering
-                    print(f"PageCollector: Restart crawlering from initial entrypoint.")
+                    self.logger.info(f"Restart crawlering from initial entrypoint.")
                     return self.run()
                 count += 1
 
@@ -113,6 +120,7 @@ class ImageSaver(threading.Thread):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        self.logger = logging.getLogger("ImageSaver")
 
     def run(self):
         persister = Persister(**self.config)
@@ -133,7 +141,7 @@ class ImageSaver(threading.Thread):
                 res = get(url)
             except:
                 # try again latter
-                print(f"ImageSaver: Failed to reach to the page {url}")
+                self.logger.error(f"Failed to reach to the page {url}")
                 time.sleep(5)
                 persister.close()
                 return self.run()
@@ -147,7 +155,7 @@ class ImageSaver(threading.Thread):
 
             # get image urls
             images = soup.select(".rootContant .showMiniImage")
-            print(f"ImageSaver: start dealing with page {url}, {desc}")
+            self.logger.info(f"Start dealing with page {page_url}, {desc}")
 
             for idx in range(start_idx, len(images)):
                 image = images[idx]
@@ -162,7 +170,7 @@ class ImageSaver(threading.Thread):
                         url = _baseurl + src
                         res = get(url)
                         if res.status_code == requests.codes.ok:
-                            print(f"ImageSaver: Saving image to {filename}")
+                            self.logger.info(f"Saving image to {filename}")
                             io_helper.save_file(filename, res.content)
                             # break loop if ok
                             break
@@ -170,28 +178,28 @@ class ImageSaver(threading.Thread):
                             # retry to threshold times and skip it if cannot reach
                             if times == _images_threshold - 1:
                                 filename = str(filename) + "_" + str(res.status_code)
-                                print(
-                                    f"ImageSaver: Retry times exceeded, skip and saving to {filename}"
+                                self.logger.warn(
+                                    f"Retry times exceeded, skip and saving to {filename}"
                                 )
                                 io_helper.save_file(filename, b"")
                                 break
                             # try again latter
-                            print(
-                                f"ImageSaver: Status code is not ok for {url}, {res.status_code}"
+                            self.logger.warn(
+                                f"Status code is not ok for {url}, {res.status_code}"
                             )
 
                             time.sleep(5)
                             # try to save again
                             continue
                     except Exception as e:
-                        print(f"ImageSaver: Failed to get the image {url}")
+                        self.logger.error(f"Failed to get the image {url}")
                         persister.close()
                         time.sleep(5)
                         return self.run()
                         # raise e
 
             # update stauts
-            print(f"ImageSaver: Finished dealing with page {url}, {desc}")
+            self.logger.info(f"Finished dealing with page {page_url}, {desc}")
             persister.execute(SQL_UPDATE, (STATUS_FINISHED, page_url))
 
             # Finish this page and sleep for a few seconds before go on
@@ -204,6 +212,7 @@ class AsImageCrawler:
         global _baseurl
         _baseurl = baseurl
         self.entrypoint = entrypoint
+        self.logger = logging.getLogger("AsImageCrawler")
         # for mute collector if you don't need more collections
         self.mute_collector = mute_collector
         with open(config_path) as file:
@@ -240,6 +249,7 @@ class AsImageCrawler:
                     _internal = simulation["internal"]
 
     def start(self):
+        self.logger.info("Task running.")
         # collector is more efficient than image saver,
         # so you can mute collector if you don't need more collections
         if not self.mute_collector:
@@ -248,6 +258,8 @@ class AsImageCrawler:
                 config=self.per_config, entrypoint=self.entrypoint
             )
             collector.start()
+        else:
+            self.logger.info("Collector is muted.")
         # image saver thread
         saver = ImageSaver(config=self.per_config)
         saver.start()
